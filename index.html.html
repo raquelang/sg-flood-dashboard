@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Singapore Flood Alerts — PUB Live</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0d1117; color: #e6edf3;
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+}
+
+#header {
+  background: #161b22; border-bottom: 1px solid #21262d;
+  padding: 9px 14px; display: flex; align-items: center;
+  justify-content: space-between; flex-shrink: 0; gap: 8px;
+}
+#header-left { display: flex; align-items: center; gap: 10px; }
+#pulse {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #3fb950; flex-shrink: 0;
+  animation: blink 2s ease-in-out infinite;
+}
+@keyframes blink {
+  0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(63,185,80,0.5); }
+  50% { opacity:.7; box-shadow: 0 0 0 5px rgba(63,185,80,0); }
+}
+#pulse.red { background:#f85149; animation: blink-red 1s ease-in-out infinite; }
+@keyframes blink-red {
+  0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(248,81,73,0.5); }
+  50% { opacity:.7; box-shadow: 0 0 0 5px rgba(248,81,73,0); }
+}
+#pulse.amber { background:#d29922; }
+#pulse.grey { background:#555; animation:none; }
+
+#title { font-size: 13px; font-weight: 600; }
+#subtitle { font-size: 10px; color: #8b949e; }
+
+#hdr-right { display:flex; align-items:center; gap:8px; }
+#api-status { font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; color: #8b949e; }
+#api-status.ok { color: #3fb950; border-color: rgba(63,185,80,.3); background: rgba(63,185,80,.08); }
+#api-status.err { color: #f85149; border-color: rgba(248,81,73,.3); background: rgba(248,81,73,.08); }
+#api-status.warn { color: #d29922; border-color: rgba(210,153,34,.3); background: rgba(210,153,34,.08); }
+
+#refresh-btn {
+  background: none; border: 1px solid #30363d; color: #8b949e;
+  padding: 4px 10px; border-radius: 5px; font-size: 11px; cursor: pointer;
+}
+#refresh-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+
+#main { display: flex; flex: 1; overflow: hidden; position: relative; }
+#map { flex: 1; }
+
+#sidebar {
+  width: 260px; background: #161b22; border-left: 1px solid #21262d;
+  display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+}
+
+#stats {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 1px; background: #21262d; border-bottom: 1px solid #21262d; flex-shrink: 0;
+}
+.stat-box { background: #161b22; padding: 10px 12px; }
+.stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+.stat-val { font-size: 22px; font-weight: 700; color: #e6edf3; }
+.stat-val.red { color: #f85149; }
+.stat-val.green { color: #3fb950; }
+.stat-val.amber { color: #d29922; }
+
+#list-header {
+  padding: 8px 12px 6px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .5px; color: #8b949e; border-bottom: 1px solid #21262d; flex-shrink: 0;
+  display: flex; justify-content: space-between; align-items: center;
+}
+#demo-badge {
+  font-size: 9px; padding: 1px 6px; border-radius: 3px;
+  background: rgba(210,153,34,.15); color: #d29922;
+  border: 1px solid rgba(210,153,34,.3); display: none;
+}
+
+#alerts-list { overflow-y: auto; flex: 1; }
+#alerts-list::-webkit-scrollbar { width: 3px; }
+#alerts-list::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+.alert-card {
+  padding: 10px 12px; border-bottom: 1px solid #21262d;
+  cursor: pointer; transition: background .15s;
+}
+.alert-card:hover { background: #1c2128; }
+
+.sev-badge {
+  display: inline-block; font-size: 9px; font-weight: 700;
+  padding: 2px 6px; border-radius: 3px; margin-bottom: 5px;
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.sev-extreme { background: rgba(248,81,73,.15); color: #f85149; border: 1px solid rgba(248,81,73,.3); }
+.sev-severe  { background: rgba(210,153,34,.15); color: #d29922; border: 1px solid rgba(210,153,34,.3); }
+.sev-moderate{ background: rgba(88,166,255,.15); color: #58a6ff; border: 1px solid rgba(88,166,255,.3); }
+.sev-minor   { background: rgba(63,185,80,.15);  color: #3fb950; border: 1px solid rgba(63,185,80,.3); }
+.sev-unknown { background: rgba(139,148,158,.15);color: #8b949e; border: 1px solid rgba(139,148,158,.3); }
+
+.alert-loc { font-size: 12px; font-weight: 500; line-height: 1.4; margin-bottom: 3px; }
+.alert-meta { font-size: 10px; color: #8b949e; }
+
+#clear-state {
+  padding: 28px 16px; text-align: center;
+}
+#clear-icon { font-size: 28px; margin-bottom: 8px; }
+#clear-title { font-size: 12px; font-weight: 600; color: #3fb950; margin-bottom: 4px; }
+#clear-sub { font-size: 10px; color: #8b949e; line-height: 1.5; }
+
+#statusbar {
+  padding: 5px 12px; font-size: 10px; color: #555;
+  border-top: 1px solid #21262d; flex-shrink: 0; line-height: 1.4;
+}
+
+#spinner-overlay {
+  position: absolute; inset: 0; background: rgba(13,17,23,.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; gap: 8px; font-size: 12px; color: #8b949e;
+}
+.spin { width:14px; height:14px; border:2px solid #30363d; border-top-color:#58a6ff; border-radius:50%; animation: sp .7s linear infinite; }
+@keyframes sp { to { transform:rotate(360deg); } }
+
+.leaflet-container { background:#0d1117 !important; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div id="header-left">
+    <div id="pulse" class="grey"></div>
+    <div>
+      <div id="title">Singapore Flood Alerts</div>
+      <div id="subtitle">PUB &mdash; data.gov.sg real-time</div>
+    </div>
+  </div>
+  <div id="hdr-right">
+    <span id="api-status">connecting&hellip;</span>
+    <button id="refresh-btn" onclick="load()">&#8635; Refresh</button>
+  </div>
+</div>
+
+<div id="main">
+  <div id="spinner-overlay"><div class="spin"></div> Fetching live data&hellip;</div>
+  <div id="map"></div>
+  <div id="sidebar">
+    <div id="stats">
+      <div class="stat-box">
+        <div class="stat-label">Active alerts</div>
+        <div class="stat-val" id="s-total">—</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Highest severity</div>
+        <div class="stat-val" id="s-sev">—</div>
+      </div>
+    </div>
+    <div id="list-header">
+      Alert locations
+      <span id="demo-badge">DEMO DATA</span>
+    </div>
+    <div id="alerts-list"></div>
+    <div id="statusbar">Connecting&hellip;</div>
+  </div>
+</div>
+
+<script>
+/* ── map setup ── */
+const map = L.map('map', { center:[1.3521,103.8198], zoom:12, zoomControl:true, attributionControl:false });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom:19 }).addTo(map);
+L.control.attribution({ prefix:false }).addAttribution('&copy; CartoDB | PUB / data.gov.sg').addTo(map);
+
+/* ── API endpoints to try in order ── */
+const ENDPOINTS = [
+  'https://api-open.data.gov.sg/v2/real-time/api/flood-alerts',
+  'https://api.data.gov.sg/v1/environment/flood-alerts'
+];
+
+/* ── demo data shown when API is unreachable ── */
+const DEMO = [
+  { severity:'Severe', urgency:'Immediate', message:'Orchard Road (near Somerset MRT)', lat:1.3006, lng:103.8389 },
+  { severity:'Moderate', urgency:'Expected', message:'Bukit Timah Road (near Sixth Ave)', lat:1.3313, lng:103.7952 },
+  { severity:'Minor', urgency:'Future', message:'Geylang Rd / Lor 1 Geylang junction', lat:1.3139, lng:103.8774 },
+  { severity:'Minor', urgency:'Future', message:'Thomson Rd (Balestier Rd to Novena Rise)', lat:1.3264, lng:103.8395 }
+];
+
+let markers = [];
+let timer = null;
+
+/* ── severity helpers ── */
+function sevClass(s) {
+  if (!s) return 'sev-unknown';
+  s = s.toLowerCase();
+  if (s.includes('extreme')) return 'sev-extreme';
+  if (s.includes('severe') || s.includes('high')) return 'sev-severe';
+  if (s.includes('moderate') || s.includes('medium')) return 'sev-moderate';
+  if (s.includes('minor') || s.includes('low')) return 'sev-minor';
+  return 'sev-unknown';
+}
+function sevColor(s) {
+  const c = sevClass(s);
+  return { 'sev-extreme':'#f85149','sev-severe':'#d29922','sev-moderate':'#58a6ff','sev-minor':'#3fb950','sev-unknown':'#8b949e' }[c];
+}
+const SEV_ORDER = ['extreme','severe','high','moderate','medium','minor','low'];
+function topSev(items) {
+  let best = -1;
+  for (const it of items) {
+    const s = (it.severity||'').toLowerCase();
+    const idx = SEV_ORDER.findIndex(o => s.includes(o));
+    if (idx !== -1 && (best === -1 || idx < best)) best = idx;
+  }
+  if (best === -1) return null;
+  return ['Extreme','Severe','High','Moderate','Medium','Minor','Low'][best];
+}
+
+/* ── render ── */
+function render(items, isDemo) {
+  markers.forEach(m => map.removeLayer(m)); markers = [];
+  const list = document.getElementById('alerts-list');
+  list.innerHTML = '';
+
+  document.getElementById('demo-badge').style.display = isDemo ? 'inline' : 'none';
+
+  const pulse = document.getElementById('pulse');
+  const total = document.getElementById('s-total');
+  const sevEl = document.getElementById('s-sev');
+
+  if (items.length === 0) {
+    pulse.className = '';
+    pulse.style.cssText = 'background:#3fb950;width:10px;height:10px;border-radius:50%;flex-shrink:0;animation:blink 2s ease-in-out infinite;';
+    total.textContent = '0'; total.className = 'stat-val green';
+    sevEl.textContent = 'Clear'; sevEl.className = 'stat-val green';
+    list.innerHTML = `<div id="clear-state">
+      <div id="clear-icon">&#9989;</div>
+      <div id="clear-title">No active flood alerts</div>
+      <div id="clear-sub">Singapore is currently clear.<br>Auto-refresh every 60 s.</div>
+    </div>`;
+    return;
+  }
+
+  const hs = topSev(items);
+  total.textContent = items.length;
+  total.className = 'stat-val red';
+  sevEl.textContent = hs || '—';
+  sevEl.className = 'stat-val amber';
+  pulse.className = 'red';
+
+  items.forEach(item => {
+    const sev  = item.severity || 'Unknown';
+    const loc  = item.message || item.location || item.area || item.title || 'Unknown location';
+    const urg  = item.urgency ? `Urgency: ${item.urgency}` : '';
+
+    /* coordinates — PUB API may nest them differently */
+    let lat = item.lat || item.latitude
+      || (item.location_geometry && item.location_geometry.lat)
+      || (item.coordinates && item.coordinates[1]);
+    let lng = item.lng || item.lon || item.longitude
+      || (item.location_geometry && item.location_geometry.long)
+      || (item.coordinates && item.coordinates[0]);
+
+    /* card */
+    const card = document.createElement('div');
+    card.className = 'alert-card';
+    card.innerHTML = `
+      <span class="sev-badge ${sevClass(sev)}">${sev}</span>
+      <div class="alert-loc">${loc}</div>
+      <div class="alert-meta">${urg}</div>`;
+    list.appendChild(card);
+
+    if (lat && lng) {
+      const col = sevColor(sev);
+      const icon = L.divIcon({
+        className:'',
+        html:`<div style="width:14px;height:14px;border-radius:50%;background:${col};border:2px solid rgba(255,255,255,.25);box-shadow:0 0 8px ${col}99;"></div>`,
+        iconSize:[14,14], iconAnchor:[7,7]
+      });
+      const mk = L.marker([lat,lng],{icon}).addTo(map);
+      mk.bindPopup(`<b>${loc}</b><br>Severity: ${sev}${urg?'<br>'+urg:''}`);
+      markers.push(mk);
+      card.onclick = () => { map.setView([lat,lng],15); mk.openPopup(); };
+    }
+  });
+
+  if (markers.length > 0) {
+    map.fitBounds(L.featureGroup(markers).getBounds().pad(0.3));
+  }
+}
+
+/* ── fetch ── */
+async function load() {
+  document.getElementById('spinner-overlay').style.display = 'flex';
+  const apiStatus = document.getElementById('api-status');
+  apiStatus.textContent = 'connecting…'; apiStatus.className = 'warn';
+
+  let success = false;
+  for (const url of ENDPOINTS) {
+    try {
+      const res = await fetch(url, { headers:{ Accept:'application/json' } });
+      if (!res.ok) continue;
+      const json = await res.json();
+
+      /* handle various response shapes */
+      let items = [];
+      if (Array.isArray(json)) items = json;
+      else if (json.data?.items) items = json.data.items;
+      else if (json.items) items = json.items;
+      else if (json.alerts) items = json.alerts;
+      else if (json.result?.records) items = json.result.records;
+
+      render(items, false);
+      apiStatus.textContent = `Live \u2022 ${new Date().toLocaleTimeString('en-SG',{hour:'2-digit',minute:'2-digit'})} SGT`;
+      apiStatus.className = 'ok';
+      document.getElementById('statusbar').textContent =
+        `Source: ${url.replace('https://','').split('/')[0]} \u00b7 Next refresh in 60 s`;
+      success = true;
+      break;
+    } catch(e) { /* try next */ }
+  }
+
+  if (!success) {
+    render(DEMO, true);
+    apiStatus.textContent = 'API unreachable — demo data';
+    apiStatus.className = 'err';
+    document.getElementById('statusbar').textContent =
+      'Cannot reach data.gov.sg API. Showing example alerts. Check CORS / network / API key.';
+  }
+
+  document.getElementById('spinner-overlay').style.display = 'none';
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(load, 60000);
+}
+
+load();
+</script>
+</body>
+</html>
